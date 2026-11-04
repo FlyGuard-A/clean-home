@@ -35,22 +35,27 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Live, upcoming and just-finished games from ESPN's public scoreboard feeds:
- * Champions League, LaLiga, Premier League, plus the Timberwolves' current or next game.
+ * Today's games from ESPN's public scoreboard feeds. The Timberwolves and FC Barcelona are
+ * pinned on top (today's game, or their next one); below them, today's Champions League and
+ * Premier League games. Other LaLiga games are left out.
  */
 final class Scores {
     private static final String ESPN = "https://site.api.espn.com/apis/site/v2/sports/";
+    /** {tag, feed, "all" to list every game or "barca" to only look for Barcelona}. */
     private static final String[][] LEAGUES = {
-            {"UCL", "soccer/uefa.champions"},
-            {"LALIGA", "soccer/esp.1"},
-            {"EPL", "soccer/eng.1"},
+            {"UCL", "soccer/uefa.champions", "all"},
+            {"EPL", "soccer/eng.1", "all"},
+            {"LALIGA", "soccer/esp.1", "barca"},
+            {"COPA", "soccer/esp.copa_del_rey", "barca"},
     };
+    private static final String BARCA_ID = "83", BARCA_ABBR = "BAR";
+    private static final String WOLVES_ID = "16", WOLVES_ABBR = "MIN";
     private static final int MAX_ROWS = 6; // fits above the dock
 
     static final class Game {
         String league, a, b, aLogo, bLogo, aScore, bScore, state, detail;
         long time;
-        boolean wolves;
+        String pin; // "WOLVES" or "BARÇA" for the pinned rows
     }
 
     private final Context ctx;
@@ -128,22 +133,31 @@ final class Scores {
         cal.set(Calendar.MILLISECOND, 0);
         long dayStart = cal.getTimeInMillis(), dayEnd = dayStart + 24 * 3600_000L;
 
+        long now = System.currentTimeMillis();
+
         List<Game> out = new ArrayList<>();
+        Game barca = null;
         for (String[] l : LEAGUES) {
             try {
                 JSONArray events = new JSONObject(Net.get(ESPN + l[1] + "/scoreboard?limit=100&dates=" + today))
                         .optJSONArray("events");
                 for (int i = 0; events != null && i < events.length(); i++) {
-                    Game g = parse(events.getJSONObject(i), l[0], false);
+                    JSONObject ev = events.getJSONObject(i);
+                    Game g = parse(ev, l[0], false);
                     if (g == null) continue;
                     // Only today's games (plus anything still live from late last night).
-                    if ("in".equals(g.state) || (g.time >= dayStart && g.time < dayEnd)) out.add(g);
+                    if (!"in".equals(g.state) && (g.time < dayStart || g.time >= dayEnd)) continue;
+                    if (hasTeam(ev, BARCA_ID, BARCA_ABBR)) {
+                        if (barca == null) barca = g;
+                    } else if ("all".equals(l[2])) {
+                        out.add(g);
+                    }
                 }
             } catch (Exception skipLeague) {
             }
         }
-        Game w = wolves(today);
-        if (w != null) out.add(w);
+        if (barca == null) barca = barcaNext(now);
+        Game wolves = wolves(today, now);
 
         Collections.sort(out, new Comparator<Game>() {
             @Override
@@ -153,12 +167,21 @@ final class Scores {
                 return "post".equals(x.state) ? Long.compare(y.time, x.time) : Long.compare(x.time, y.time);
             }
         });
-        if (out.size() > MAX_ROWS) {
-            List<Game> top = new ArrayList<>(out.subList(0, MAX_ROWS));
-            if (w != null && !top.contains(w)) top.set(MAX_ROWS - 1, w);
-            out = top;
+
+        List<Game> result = new ArrayList<>();
+        if (wolves != null) {
+            wolves.pin = "WOLVES";
+            result.add(wolves);
         }
-        return out;
+        if (barca != null) {
+            barca.pin = "BARÇA";
+            result.add(barca);
+        }
+        for (Game g : out) {
+            if (result.size() >= MAX_ROWS) break;
+            result.add(g);
+        }
+        return result;
     }
 
     private static int rank(Game g) {
@@ -167,22 +190,56 @@ final class Scores {
         return 2;
     }
 
-    /** Today's Timberwolves game, if they play today. */
-    private Game wolves(String today) {
+    private static boolean hasTeam(JSONObject ev, String id, String abbr) {
+        JSONArray comps = ev.optJSONArray("competitions");
+        JSONArray cs = comps == null || comps.length() == 0 ? null : comps.optJSONObject(0).optJSONArray("competitors");
+        for (int i = 0; cs != null && i < cs.length(); i++) {
+            JSONObject t = cs.optJSONObject(i).optJSONObject("team");
+            if (t != null && (id.equals(t.optString("id")) || abbr.equals(t.optString("abbreviation")))) return true;
+        }
+        return false;
+    }
+
+    /** Barcelona's next LaLiga or Champions League fixture, for days they don't play. */
+    private Game barcaNext(long now) {
+        Game next = null;
+        String[][] feeds = {{"LALIGA", "soccer/esp.1"}, {"UCL", "soccer/uefa.champions"}};
+        for (String[] f : feeds) {
+            try {
+                JSONArray events = new JSONObject(Net.get(ESPN + f[1] + "/teams/" + BARCA_ID + "/schedule?fixture=true"))
+                        .optJSONArray("events");
+                for (int i = 0; events != null && i < events.length(); i++) {
+                    Game g = parse(events.getJSONObject(i), f[0], false);
+                    if (g == null || "post".equals(g.state) || g.time < now) continue;
+                    if (next == null || g.time < next.time) next = g;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return next;
+    }
+
+    /** Today's Timberwolves game, or their next one when they don't play today. */
+    private Game wolves(String today, long now) {
         try {
             JSONArray events = new JSONObject(Net.get(ESPN + "basketball/nba/scoreboard?dates=" + today)).optJSONArray("events");
             for (int i = 0; events != null && i < events.length(); i++) {
                 JSONObject ev = events.getJSONObject(i);
-                if (!ev.toString().contains("\"abbreviation\":\"MIN\"")) continue;
+                if (!hasTeam(ev, WOLVES_ID, WOLVES_ABBR)) continue;
                 Game g = parse(ev, "NBA", true);
-                if (g != null) {
-                    g.wolves = true;
-                    return g;
-                }
+                if (g != null) return g;
             }
-        } catch (Exception ignored) {
+            events = new JSONObject(Net.get(ESPN + "basketball/nba/teams/min/schedule")).optJSONArray("events");
+            Game next = null;
+            for (int i = 0; events != null && i < events.length(); i++) {
+                Game g = parse(events.getJSONObject(i), "NBA", true);
+                if (g == null || "post".equals(g.state) || g.time < now) continue;
+                if (next == null || g.time < next.time) next = g;
+            }
+            return next;
+        } catch (Exception e) {
+            return null;
         }
-        return null;
     }
 
     /** Handles both the scoreboard and team-schedule shapes of an ESPN event. */
@@ -280,7 +337,7 @@ final class Scores {
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView tag = text(g.wolves ? "WOLVES" : g.league, 8, "sans-serif-medium", 0xFFFFFFFF);
+        TextView tag = text(g.pin != null ? g.pin : g.league, 8, "sans-serif-medium", 0xFFFFFFFF);
         tag.setGravity(Gravity.CENTER);
         tag.setLetterSpacing(0.06f);
         GradientDrawable pill = new GradientDrawable();
@@ -321,7 +378,8 @@ final class Scores {
     }
 
     private static int leagueColor(Game g) {
-        if (g.wolves) return 0xFF236192;
+        if ("WOLVES".equals(g.pin)) return 0xFF236192;
+        if ("BARÇA".equals(g.pin)) return 0xFFA50044;
         switch (g.league) {
             case "UCL": return 0xFF1C3F94;
             case "LALIGA": return 0xFFE8364A;
