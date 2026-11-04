@@ -45,7 +45,7 @@ final class Scores {
             {"LALIGA", "soccer/esp.1"},
             {"EPL", "soccer/eng.1"},
     };
-    private static final int MAX_ROWS = 6;
+    private static final int MAX_ROWS = 6; // fits above the dock
 
     static final class Game {
         String league, a, b, aLogo, bLogo, aScore, bScore, state, detail;
@@ -122,27 +122,27 @@ final class Scores {
         Calendar cal = Calendar.getInstance();
         SimpleDateFormat ymd = new SimpleDateFormat("yyyyMMdd", Locale.US);
         String today = ymd.format(cal.getTime());
-        cal.add(Calendar.DAY_OF_YEAR, 5);
-        String range = today + "-" + ymd.format(cal.getTime());
-        long now = System.currentTimeMillis();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        long dayStart = cal.getTimeInMillis(), dayEnd = dayStart + 24 * 3600_000L;
 
         List<Game> out = new ArrayList<>();
         for (String[] l : LEAGUES) {
             try {
-                JSONArray events = new JSONObject(Net.get(ESPN + l[1] + "/scoreboard?limit=100&dates=" + range))
+                JSONArray events = new JSONObject(Net.get(ESPN + l[1] + "/scoreboard?limit=100&dates=" + today))
                         .optJSONArray("events");
                 for (int i = 0; events != null && i < events.length(); i++) {
                     Game g = parse(events.getJSONObject(i), l[0], false);
                     if (g == null) continue;
-                    boolean keep = "in".equals(g.state)
-                            || ("pre".equals(g.state) && g.time - now < 5 * 24 * 3600_000L)
-                            || ("post".equals(g.state) && now - g.time < 12 * 3600_000L);
-                    if (keep) out.add(g);
+                    // Only today's games (plus anything still live from late last night).
+                    if ("in".equals(g.state) || (g.time >= dayStart && g.time < dayEnd)) out.add(g);
                 }
             } catch (Exception skipLeague) {
             }
         }
-        Game w = wolves(today, now);
+        Game w = wolves(today);
         if (w != null) out.add(w);
 
         Collections.sort(out, new Comparator<Game>() {
@@ -167,32 +167,22 @@ final class Scores {
         return 2;
     }
 
-    /** Today's Timberwolves game if there is one, otherwise their next scheduled game. */
-    private Game wolves(String today, long now) {
+    /** Today's Timberwolves game, if they play today. */
+    private Game wolves(String today) {
         try {
             JSONArray events = new JSONObject(Net.get(ESPN + "basketball/nba/scoreboard?dates=" + today)).optJSONArray("events");
             for (int i = 0; events != null && i < events.length(); i++) {
                 JSONObject ev = events.getJSONObject(i);
-                if (ev.toString().contains("\"abbreviation\":\"MIN\"")) {
-                    Game g = parse(ev, "NBA", true);
-                    if (g != null) {
-                        g.wolves = true;
-                        return g;
-                    }
+                if (!ev.toString().contains("\"abbreviation\":\"MIN\"")) continue;
+                Game g = parse(ev, "NBA", true);
+                if (g != null) {
+                    g.wolves = true;
+                    return g;
                 }
             }
-            events = new JSONObject(Net.get(ESPN + "basketball/nba/teams/min/schedule")).optJSONArray("events");
-            Game next = null;
-            for (int i = 0; events != null && i < events.length(); i++) {
-                Game g = parse(events.getJSONObject(i), "NBA", true);
-                if (g == null || "post".equals(g.state) || g.time < now - 4 * 3600_000L) continue;
-                if (next == null || g.time < next.time) next = g;
-            }
-            if (next != null) next.wolves = true;
-            return next;
-        } catch (Exception e) {
-            return null;
+        } catch (Exception ignored) {
         }
+        return null;
     }
 
     /** Handles both the scoreboard and team-schedule shapes of an ESPN event. */
@@ -269,7 +259,7 @@ final class Scores {
 
     private void render(List<Game> games) {
         list.removeAllViews();
-        TextView header = text("LIVE & UPCOMING", 10, "sans-serif-medium", 0x99FFFFFF);
+        TextView header = text("TODAY", 10, "sans-serif-medium", 0x99FFFFFF);
         header.setLetterSpacing(0.12f);
         header.setPadding(0, 0, 0, px(4));
         list.addView(header);
@@ -277,7 +267,7 @@ final class Scores {
         if (games == null) {
             list.addView(text("Scores unavailable right now", 13, "sans-serif", 0xB3FFFFFF));
         } else if (games.isEmpty()) {
-            list.addView(text("No matches in the next 5 days", 13, "sans-serif", 0xB3FFFFFF));
+            list.addView(text("No games today", 13, "sans-serif", 0xB3FFFFFF));
         } else {
             for (Game g : games) list.addView(row(g), new LinearLayout.LayoutParams(-1, px(34)));
         }
