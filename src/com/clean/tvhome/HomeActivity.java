@@ -91,7 +91,7 @@ public class HomeActivity extends Activity {
     private ImageView wallpaper;
     private View dim, leftInfo, rightColumn;
     private LinearLayout dockRow, grid;
-    private TextView bigClock, dateText, hint;
+    private TextView bigClock, dateText;
     private NowPlaying nowPlaying;
     private Scores scores;
 
@@ -142,7 +142,6 @@ public class HomeActivity extends Activity {
         handler.removeCallbacks(tick);
         tick.run();
         enableOwnServices();
-        updateHint();
         nowPlaying.start();
         scores.start();
         Wallpaper.load(this, new Wallpaper.Listener() {
@@ -264,12 +263,8 @@ public class HomeActivity extends Activity {
         bigClock = text(80, "sans-serif-thin", 0xFFFFFFFF);
         bigClock.setIncludeFontPadding(false);
         dateText = text(20, "sans-serif-light", 0xE6FFFFFF);
-        hint = text(13, "sans-serif", 0x99FFFFFF);
-        hint.setPadding(0, px(14), 0, 0);
-        hint.setMaxWidth(px(420));
         left.addView(bigClock);
         left.addView(dateText);
-        left.addView(hint);
         leftInfo = left;
         FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
         ll.setMargins(side + px(8), px(30), 0, 0);
@@ -330,24 +325,6 @@ public class HomeActivity extends Activity {
         Date now = new Date();
         bigClock.setText(new SimpleDateFormat(DateFormat.is24HourFormat(this) ? "H:mm" : "h:mm", Locale.getDefault()).format(now));
         dateText.setText(new SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now));
-    }
-
-    private void updateHint() {
-        boolean fireTv;
-        try {
-            getPackageManager().getPackageInfo("com.amazon.tv.launcher", 0);
-            fireTv = true;
-        } catch (PackageManager.NameNotFoundException e) {
-            fireTv = false;
-        }
-        String on = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        boolean redirecting = on != null && on.contains(getPackageName() + "/");
-        if (fireTv && !redirecting) {
-            hint.setText("Tip: to open this with the Home button, do the one-time setup at github.com/FlyGuard-A/clean-home");
-            hint.setVisibility(View.VISIBLE);
-        } else {
-            hint.setVisibility(View.GONE);
-        }
     }
 
     /**
