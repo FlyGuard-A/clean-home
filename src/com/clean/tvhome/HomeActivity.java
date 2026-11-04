@@ -1,7 +1,5 @@
 package com.clean.tvhome;
 
-import android.animation.ArgbEvaluator;
-import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
@@ -14,6 +12,7 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -29,6 +28,7 @@ import android.view.View;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -49,17 +49,17 @@ import java.util.Map;
 import java.util.Set;
 
 public class HomeActivity extends Activity {
-    private static final int COLS = 5;
-    private static final int BASE = 0xFF08080B;
-    private static final int DEFAULT_TINT = 0xFF2A2C3A;
+    private static final int COLS = 6;
 
     /** Streaming apps placed first on a fresh install; everything else is alphabetical. */
     private static final List<String> FAVORITES = Arrays.asList(
-            "com.netflix.ninja",
-            "com.amazon.firebat",
-            "com.amazon.avod",
             "com.amazon.firetv.youtube",
             "com.google.android.youtube.tv",
+            "com.netflix.ninja",
+            "com.amazon.avod",
+            "com.amazon.firebat",
+            "com.espn.score_center",
+            "com.spotify.tv.android",
             "com.disney.disneyplus",
             "com.hulu.plus",
             "com.wbd.stream",
@@ -67,8 +67,7 @@ public class HomeActivity extends Activity {
             "com.apple.atve.amazon.appletv",
             "com.cbs.ott",
             "com.peacocktv.peacockandroid",
-            "com.plexapp.android",
-            "com.spotify.tv.android");
+            "com.plexapp.android");
 
     /** Packages that never get a tile: the stock launcher, and Settings (we have our own tile). */
     private static final Set<String> SKIP = new HashSet<>(Arrays.asList(
@@ -81,20 +80,20 @@ public class HomeActivity extends Activity {
     private final List<AppEntry> entries = new ArrayList<>();
     private final List<AppEntry> hiddenEntries = new ArrayList<>();
     private final List<TileView> tiles = new ArrayList<>();
+    private final List<FrostedPanel> panels = new ArrayList<>();
 
     private Prefs prefs;
     private IconLoader loader;
     private float dp;
-    private int tileW, tileH, gap, rowGap, side, shelfH;
+    private int screenH, tileW, tileH, gap, rowGap, side, pad, dockH, dockTop;
 
     private ScrollView scroll;
-    private LinearLayout grid;
-    private View shelf, backdrop;
-    private GradientDrawable backdropBg;
-    private TextView bigClock, dateText, hint, miniClock;
+    private ImageView wallpaper;
+    private View dim, leftInfo, rightColumn;
+    private LinearLayout dockRow, grid;
+    private TextView bigClock, dateText, hint;
     private NowPlaying nowPlaying;
-    private int tint = DEFAULT_TINT;
-    private ValueAnimator tintAnim;
+    private Scores scores;
 
     private boolean moving;
     private int moveIndex;
@@ -145,6 +144,15 @@ public class HomeActivity extends Activity {
         enableOwnServices();
         updateHint();
         nowPlaying.start();
+        scores.start();
+        Wallpaper.load(this, new Wallpaper.Listener() {
+            @Override
+            public void onWallpaper(Bitmap full, Bitmap blurred) {
+                wallpaper.setImageBitmap(full);
+                FrostedPanel.backdrop = blurred;
+                invalidatePanels();
+            }
+        });
         if (getCurrentFocus() == null && !tiles.isEmpty()) tiles.get(0).requestFocus();
     }
 
@@ -153,6 +161,7 @@ public class HomeActivity extends Activity {
         super.onPause();
         handler.removeCallbacks(tick);
         nowPlaying.stop();
+        scores.stop();
     }
 
     @Override
@@ -184,29 +193,44 @@ public class HomeActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         dp = dm.density;
         int w = Math.max(dm.widthPixels, dm.heightPixels);
-        int h = Math.min(dm.widthPixels, dm.heightPixels);
-        side = (int) (56 * dp);
-        gap = (int) (28 * dp);
-        rowGap = (int) (22 * dp);
-        tileW = (w - 2 * side - (COLS - 1) * gap) / COLS;
-        tileH = tileW * 9 / 16;
-        shelfH = (int) (h * 0.5f);
+        screenH = Math.min(dm.widthPixels, dm.heightPixels);
+        side = px(36);
+        pad = px(22);
+        gap = px(24);
+        rowGap = px(30);
+        tileW = (w - 2 * side - 2 * pad - (COLS - 1) * gap) / COLS;
+        tileH = tileW * 3 / 5;
+        dockH = tileH + 2 * pad;
+        // Leave a strip under the dock so the next row peeks out, like tvOS.
+        dockTop = screenH - dockH - px(60);
+    }
+
+    private int px(float v) {
+        return (int) (v * dp + 0.5f);
     }
 
     private View buildUi() {
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(BASE);
+        root.setBackgroundColor(0xFF0B0D12);
 
-        backdropBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{tint, BASE});
-        backdrop = new View(this);
-        backdrop.setBackground(backdropBg);
-        root.addView(backdrop, new FrameLayout.LayoutParams(-1, (int) (shelfH * 1.7f)));
+        wallpaper = new ImageView(this);
+        wallpaper.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        root.addView(wallpaper, new FrameLayout.LayoutParams(-1, -1));
+
+        View scrim = new View(this);
+        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x8C000000, 0x1A000000, 0x00000000, 0x59000000}));
+        root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+
+        dim = new View(this);
+        dim.setBackgroundColor(0xFF000000);
+        dim.setAlpha(0f);
+        root.addView(dim, new FrameLayout.LayoutParams(-1, -1));
 
         scroll = new NoAutoScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setClipChildren(false);
-        scroll.setFillViewport(true);
         root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout content = new LinearLayout(this);
@@ -216,51 +240,81 @@ public class HomeActivity extends Activity {
         content.setPadding(side, 0, side, 0);
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
 
-        LinearLayout shelfBox = new LinearLayout(this);
-        shelfBox.setOrientation(LinearLayout.VERTICAL);
-        shelfBox.setGravity(Gravity.BOTTOM | Gravity.START);
-        shelfBox.setPadding(0, 0, 0, (int) (36 * dp));
-        shelf = shelfBox;
+        content.addView(new View(this), new LinearLayout.LayoutParams(-1, dockTop));
 
-        bigClock = text(96, "sans-serif-thin", 0xFFFFFFFF);
-        bigClock.setIncludeFontPadding(false);
-        dateText = text(22, "sans-serif-light", 0xCCFFFFFF);
-        hint = text(14, "sans-serif", 0x80FFFFFF);
-        hint.setPadding(0, (int) (14 * dp), 0, 0);
-        shelfBox.addView(bigClock);
-        shelfBox.addView(dateText);
-        shelfBox.addView(hint);
-        content.addView(shelfBox, new LinearLayout.LayoutParams(-1, shelfH));
+        FrostedPanel dock = new FrostedPanel(this, px(30), 0x3DFFFFFF, 0x59FFFFFF, dp);
+        panels.add(dock);
+        dockRow = row();
+        dockRow.setPadding(pad, pad, pad, pad);
+        dock.addView(dockRow, new FrameLayout.LayoutParams(-1, -1));
+        content.addView(dock, new LinearLayout.LayoutParams(-1, dockH));
 
         grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         grid.setClipChildren(false);
         grid.setClipToPadding(false);
-        // Room below the last row so it can scroll up to the same spot as the others.
-        grid.setPadding(0, (int) (8 * dp), 0, shelfH);
-        content.addView(grid, new LinearLayout.LayoutParams(-1, -2));
+        grid.setPadding(pad, 0, pad, screenH); // room so the last row can scroll up
+        LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(-1, -2);
+        gl.topMargin = rowGap;
+        content.addView(grid, gl);
 
-        miniClock = text(20, "sans-serif-light", 0xE6FFFFFF);
-        miniClock.setAlpha(0f);
-        FrameLayout.LayoutParams mc = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        mc.setMargins(side, (int) (28 * dp), 0, 0);
-        root.addView(miniClock, mc);
+        // Top left: time and date.
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        bigClock = text(80, "sans-serif-thin", 0xFFFFFFFF);
+        bigClock.setIncludeFontPadding(false);
+        dateText = text(20, "sans-serif-light", 0xE6FFFFFF);
+        hint = text(13, "sans-serif", 0x99FFFFFF);
+        hint.setPadding(0, px(14), 0, 0);
+        hint.setMaxWidth(px(420));
+        left.addView(bigClock);
+        left.addView(dateText);
+        left.addView(hint);
+        leftInfo = left;
+        FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        ll.setMargins(side + px(8), px(30), 0, 0);
+        root.addView(left, ll);
 
+        // Top right: Spotify, then scores underneath.
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(LinearLayout.VERTICAL);
         nowPlaying = new NowPlaying(this, dp);
-        FrameLayout.LayoutParams np = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        np.setMargins(0, (int) (24 * dp), side, 0);
-        root.addView(nowPlaying.view(), np);
+        right.addView(nowPlaying.view(), new LinearLayout.LayoutParams(-1, -2));
+        scores = new Scores(this, dp);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(-1, -2);
+        sl.topMargin = px(12);
+        right.addView(scores.view(), sl);
+        panels.add((FrostedPanel) nowPlaying.view());
+        panels.add((FrostedPanel) scores.view());
+        rightColumn = right;
+        FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(px(340), -2, Gravity.TOP | Gravity.END);
+        rl.setMargins(0, px(28), side, 0);
+        root.addView(right, rl);
 
         scroll.getViewTreeObserver().addOnScrollChangedListener(new ViewTreeObserver.OnScrollChangedListener() {
             @Override
             public void onScrollChanged() {
-                float f = Math.min(1f, scroll.getScrollY() / (shelfH * 0.6f));
-                shelf.setAlpha(1f - f);
-                backdrop.setAlpha(1f - 0.65f * f);
-                miniClock.setAlpha(f);
+                float f = Math.min(1f, scroll.getScrollY() / (dockTop * 0.5f));
+                leftInfo.setAlpha(1f - f);
+                rightColumn.setAlpha(1f - f);
+                dim.setAlpha(0.5f * f);
+                invalidatePanels();
             }
         });
         return root;
+    }
+
+    private LinearLayout row() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setClipChildren(false);
+        r.setClipToPadding(false);
+        return r;
+    }
+
+    private void invalidatePanels() {
+        for (FrostedPanel p : panels) p.invalidate();
     }
 
     private TextView text(float sp, String family, int color) {
@@ -268,14 +322,13 @@ public class HomeActivity extends Activity {
         t.setTextSize(sp);
         t.setTextColor(color);
         t.setTypeface(Typeface.create(family, Typeface.NORMAL));
+        t.setShadowLayer(px(8), 0, px(1), 0x66000000);
         return t;
     }
 
     private void updateClock() {
         Date now = new Date();
-        String time = new SimpleDateFormat(DateFormat.is24HourFormat(this) ? "H:mm" : "h:mm", Locale.getDefault()).format(now);
-        bigClock.setText(time);
-        miniClock.setText(time);
+        bigClock.setText(new SimpleDateFormat(DateFormat.is24HourFormat(this) ? "H:mm" : "h:mm", Locale.getDefault()).format(now));
         dateText.setText(new SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now));
     }
 
@@ -403,26 +456,25 @@ public class HomeActivity extends Activity {
 
     // ---------------------------------------------------------------- grid
 
+    /** The first COLS apps go in the glass dock; the rest fill rows underneath. */
     private void buildGrid(int focusIndex) {
+        dockRow.removeAllViews();
         grid.removeAllViews();
         tiles.clear();
         List<AppEntry> all = new ArrayList<>(entries);
         if (!hiddenEntries.isEmpty()) {
             all.add(new AppEntry(AppEntry.KEY_HIDDEN, "Hidden apps (" + hiddenEntries.size() + ")", null, null));
         }
-        LinearLayout row = null;
+        LinearLayout row = dockRow;
         for (int i = 0; i < all.size(); i++) {
-            if (i % COLS == 0) {
-                row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setClipChildren(false);
-                row.setClipToPadding(false);
+            if (i >= COLS && i % COLS == 0) {
+                row = row();
                 LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(-1, -2);
-                if (i > 0) rl.topMargin = rowGap;
+                if (i > COLS) rl.topMargin = rowGap;
                 grid.addView(row, rl);
             }
             TileView t = makeTile(all.get(i));
-            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(tileW, -2);
+            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(tileW, tileH);
             if (i % COLS != 0) tl.leftMargin = gap;
             row.addView(t, tl);
             tiles.add(t);
@@ -431,19 +483,18 @@ public class HomeActivity extends Activity {
     }
 
     private TileView makeTile(final AppEntry e) {
-        final TileView t = new TileView(this, e, tileW, tileH, dp);
+        final TileView t = new TileView(this, e, dp);
         if (AppEntry.KEY_HIDDEN.equals(e.key)) {
             t.setGlyph("•••");
         } else {
-            IconLoader.Art art = loader.cached(e.key);
+            Bitmap art = loader.cached(e.key);
             if (art != null) {
                 t.setArt(art, false);
             } else {
                 loader.load(e, new IconLoader.Callback() {
                     @Override
-                    public void onLoaded(IconLoader.Art a) {
-                        t.setArt(a, true);
-                        if (t.hasFocus()) setTint(a.color);
+                    public void onLoaded(Bitmap tile) {
+                        t.setArt(tile, true);
                     }
                 });
             }
@@ -474,29 +525,12 @@ public class HomeActivity extends Activity {
 
     private void onTileFocused(TileView t) {
         int row = tiles.indexOf(t) / COLS;
-        View rowView = grid.getChildAt(row);
         int target = 0;
-        if (row > 0 && rowView != null) {
-            target = Math.max(0, shelf.getHeight() + grid.getPaddingTop() + rowView.getTop() - (int) (96 * dp));
+        View rowView = row > 0 ? grid.getChildAt(row - 1) : null;
+        if (rowView != null) {
+            target = Math.max(0, dockTop + dockH + rowGap + rowView.getTop() - px(120));
         }
         scroll.smoothScrollTo(0, target);
-        IconLoader.Art art = loader.cached(t.entry.key);
-        setTint(art != null ? art.color : DEFAULT_TINT);
-    }
-
-    private void setTint(int color) {
-        if (color == tint) return;
-        if (tintAnim != null) tintAnim.cancel();
-        tintAnim = ValueAnimator.ofObject(new ArgbEvaluator(), tint, color);
-        tintAnim.setDuration(500);
-        tintAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator a) {
-                tint = (Integer) a.getAnimatedValue();
-                backdropBg.setColors(new int[]{tint, BASE});
-            }
-        });
-        tintAnim.start();
     }
 
     private String focusedKey() {

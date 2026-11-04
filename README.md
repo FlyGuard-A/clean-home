@@ -2,14 +2,14 @@
 
 A small, fast home screen with no ads, no sponsored rows and no recommendations. It shows only your apps.
 
-- A large clock and the date at the top. The background takes its color from the app you have selected.
-- Apps sit in a grid of rounded 16:9 tiles, five per row. The selected tile grows, gets a shadow and shows its name.
+- The background is a full-screen landscape photo (Bing's photo of the day), with a built-in mountain picture as a backup when offline.
+- Apps sit in a frosted-glass dock as rounded icon tiles: each logo on its own brand color. The selected tile grows and gets a white outline. More apps sit in rows below.
+- A large clock and the date are in the top left. On the right are Spotify "now playing" and live scores from ESPN: Champions League, LaLiga, Premier League and the Minnesota Timberwolves.
 - To rearrange: press **☰ (menu)** or **hold Select** on a tile and choose **Move**. The tile wiggles. Move it with the arrows, then press Select.
 - **Hide from Home** removes apps you never use. They go into the "Hidden apps" tile, where you can bring them back.
 - It also has App info, Uninstall and a Settings tile.
 - The TV stays on, with no screensaver or sleep, while Clean Home is on screen.
-- Shows what Spotify is playing in the top-right corner. It only displays it and has no controls.
-- The APK is about 50 KB. It uses only built-in Android parts, with no libraries, network access or tracking.
+- It uses only built-in Android parts, with no libraries or tracking. The internet is used only for the background photo, scores and team logos.
 
 ## Install
 

@@ -33,7 +33,7 @@ final class NowPlaying implements MediaSessionManager.OnActiveSessionsChangedLis
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final MediaSessionManager sessions;
     private final ComponentName listener;
-    private final LinearLayout card;
+    private final FrostedPanel card;
     private final ImageView art;
     private final TextView title, artist;
     private MediaController controller;
@@ -59,16 +59,14 @@ final class NowPlaying implements MediaSessionManager.OnActiveSessionsChangedLis
         sessions = (MediaSessionManager) c.getSystemService(Context.MEDIA_SESSION_SERVICE);
         listener = new ComponentName(c, MediaListener.class);
 
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(14 * dp);
-        bg.setColor(0x73000000);
-        card = new LinearLayout(c);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setBackground(bg);
-        card.setPadding((int) (8 * dp), (int) (8 * dp), (int) (18 * dp), (int) (8 * dp));
+        card = new FrostedPanel(c, 18 * dp, 0x66000000, 0x33FFFFFF, dp);
         card.setAlpha(0f);
         card.setVisibility(View.GONE);
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding((int) (10 * dp), (int) (10 * dp), (int) (18 * dp), (int) (10 * dp));
+        card.addView(row);
 
         GradientDrawable artBg = new GradientDrawable();
         artBg.setCornerRadius(6 * dp);
@@ -78,17 +76,21 @@ final class NowPlaying implements MediaSessionManager.OnActiveSessionsChangedLis
         art.setBackground(artBg);
         art.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         art.setClipToOutline(true);
-        card.addView(art, new LinearLayout.LayoutParams((int) (44 * dp), (int) (44 * dp)));
+        row.addView(art, new LinearLayout.LayoutParams((int) (44 * dp), (int) (44 * dp)));
 
         LinearLayout lines = new LinearLayout(c);
         lines.setOrientation(LinearLayout.VERTICAL);
+        TextView label = line(c, 10, "sans-serif-medium", 0x99FFFFFF, dp);
+        label.setText("NOW PLAYING");
+        label.setLetterSpacing(0.12f);
         title = line(c, 14, "sans-serif-medium", 0xFFFFFFFF, dp);
         artist = line(c, 12, "sans-serif", 0xB3FFFFFF, dp);
+        lines.addView(label);
         lines.addView(title);
         lines.addView(artist);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.leftMargin = (int) (12 * dp);
-        card.addView(lines, lp);
+        row.addView(lines, lp);
     }
 
     private static TextView line(Context c, float sp, String family, int color, float dp) {
@@ -98,7 +100,7 @@ final class NowPlaying implements MediaSessionManager.OnActiveSessionsChangedLis
         t.setTypeface(Typeface.create(family, Typeface.NORMAL));
         t.setSingleLine(true);
         t.setEllipsize(TextUtils.TruncateAt.END);
-        t.setMaxWidth((int) (240 * dp));
+        t.setMaxWidth((int) (250 * dp));
         return t;
     }
 
