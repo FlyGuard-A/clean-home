@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Clean Home</string>
+    <string name="redirect_label">Clean Home – Home button</string>
+    <string name="redirect_desc">Opens Clean Home whenever the Fire TV Home button brings up the stock home screen. Reads no screen content.</string>
+</resources>
