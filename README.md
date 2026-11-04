@@ -7,6 +7,7 @@ A small, fast home screen with no ads, no sponsored rows and no recommendations.
 - To rearrange: press **☰ (menu)** or **hold Select** on a tile and choose **Move**. The tile wiggles. Move it with the arrows, then press Select.
 - **Hide from Home** removes apps you never use. They go into the "Hidden apps" tile, where you can bring them back.
 - It also has App info, Uninstall and a Settings tile.
+- Shows what Spotify is playing in the top-right corner. It only displays it and has no controls.
 - The APK is about 50 KB. It uses only built-in Android parts, with no libraries, network access or tracking.
 
 ## Install
@@ -18,20 +19,30 @@ A small, fast home screen with no ads, no sponsored rows and no recommendations.
    - **From a link:** put the APK somewhere with a direct download URL and open that URL in the **Downloader** app.
 3. Open **Clean Home** from Your Apps.
 
-## Make the Home button open it
+## One-time setup: Home button and Spotify "now playing"
 
-Fire TV doesn't let you pick a different home app. Clean Home has a small accessibility service instead. When the Amazon home screen appears, the service opens Clean Home on top of it. It only watches the Amazon launcher and reads nothing on the screen.
+Fire TV has no menu to give a home screen app these permissions, so you need a computer once, for about 5 minutes. Afterwards Clean Home turns on the Home button redirect and the Spotify card by itself. It also turns them back on if a Fire OS update switches them off.
 
-Turn it on in **Settings → Accessibility** if "Clean Home – Home button" is listed there. Otherwise run this from a computer:
+1. **On the TV:** go to **Settings → My Fire TV → Developer options** and turn on **ADB debugging**. Then find the TV's IP address under **Settings → My Fire TV → About → Network**.
+2. **On a Mac:** open **Terminal** and paste these lines one at a time. Replace `TV-IP` with the address from step 1.
 
-```
-adb shell settings put secure enabled_accessibility_services com.clean.tvhome/com.clean.tvhome.HomeRedirectService
-adb shell settings put secure accessibility_enabled 1
-```
+   ```
+   cd ~/Downloads
+   curl -O https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
+   unzip -oq platform-tools-latest-darwin.zip && cd platform-tools
+   ./adb connect TV-IP
+   ```
 
-While the service is off, the home screen shows a tip about it.
+   The TV asks **"Allow USB debugging?"**. Tick **Always allow from this computer** and choose **OK**. Run `./adb connect TV-IP` again, then:
 
-Note: Amazon sometimes changes this behavior in Fire OS updates. If the Home button stops switching to Clean Home, open it from Your Apps instead. You can also pin it to the first spot in Amazon's app row.
+   ```
+   ./adb shell pm grant com.clean.tvhome android.permission.WRITE_SECURE_SETTINGS
+   ```
+
+   On Windows, download `platform-tools-latest-windows.zip` from the same address instead. Unzip it, open a terminal in that folder, and run the same commands without `./`.
+3. **On the TV:** open Clean Home once. From then on the Home button brings you to Clean Home. Whenever Spotify is playing, the top-right corner shows the album art, song and artist.
+
+How it works: Clean Home has a small accessibility service. When the Amazon home screen appears, the service opens Clean Home on top of it. It only watches the Amazon launcher and reads nothing on the screen. The Spotify card uses notification access only to see what is playing.
 
 ## Build it yourself
 

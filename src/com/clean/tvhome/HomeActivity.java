@@ -6,6 +6,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -90,6 +91,7 @@ public class HomeActivity extends Activity {
     private View shelf, backdrop;
     private GradientDrawable backdropBg;
     private TextView bigClock, dateText, hint, miniClock;
+    private NowPlaying nowPlaying;
     private int tint = DEFAULT_TINT;
     private ValueAnimator tintAnim;
 
@@ -137,7 +139,9 @@ public class HomeActivity extends Activity {
         super.onResume();
         handler.removeCallbacks(tick);
         tick.run();
+        enableOwnServices();
         updateHint();
+        nowPlaying.start();
         if (getCurrentFocus() == null && !tiles.isEmpty()) tiles.get(0).requestFocus();
     }
 
@@ -145,6 +149,7 @@ public class HomeActivity extends Activity {
     protected void onPause() {
         super.onPause();
         handler.removeCallbacks(tick);
+        nowPlaying.stop();
     }
 
     @Override
@@ -234,9 +239,14 @@ public class HomeActivity extends Activity {
 
         miniClock = text(20, "sans-serif-light", 0xE6FFFFFF);
         miniClock.setAlpha(0f);
-        FrameLayout.LayoutParams mc = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        mc.setMargins(0, (int) (28 * dp), side, 0);
+        FrameLayout.LayoutParams mc = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        mc.setMargins(side, (int) (28 * dp), 0, 0);
         root.addView(miniClock, mc);
+
+        nowPlaying = new NowPlaying(this, dp);
+        FrameLayout.LayoutParams np = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        np.setMargins(0, (int) (24 * dp), side, 0);
+        root.addView(nowPlaying.view(), np);
 
         scroll.getViewTreeObserver().addOnScrollChangedListener(new ViewTreeObserver.OnScrollChangedListener() {
             @Override
@@ -277,11 +287,34 @@ public class HomeActivity extends Activity {
         String on = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         boolean redirecting = on != null && on.contains(getPackageName() + "/");
         if (fireTv && !redirecting) {
-            hint.setText("Tip: to open this with the Home button, turn on “Clean Home – Home button” in Settings › Accessibility");
+            hint.setText("Tip: to open this with the Home button, do the one-time setup at github.com/FlyGuard-A/clean-home");
             hint.setVisibility(View.VISIBLE);
         } else {
             hint.setVisibility(View.GONE);
         }
+    }
+
+    /**
+     * Fire TV has no menu for third-party accessibility or notification access. Once
+     * WRITE_SECURE_SETTINGS has been granted over adb we switch both on ourselves,
+     * and again whenever Fire OS turns them off.
+     */
+    private void enableOwnServices() {
+        if (checkCallingOrSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != PackageManager.PERMISSION_GRANTED) return;
+        try {
+            ContentResolver cr = getContentResolver();
+            addToList(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, new ComponentName(this, HomeRedirectService.class));
+            Settings.Secure.putString(cr, Settings.Secure.ACCESSIBILITY_ENABLED, "1");
+            addToList(cr, "enabled_notification_listeners", new ComponentName(this, MediaListener.class));
+        } catch (SecurityException ignored) {
+        }
+    }
+
+    private static void addToList(ContentResolver cr, String key, ComponentName cn) {
+        String cur = Settings.Secure.getString(cr, key);
+        String me = cn.flattenToString();
+        if (cur != null && cur.contains(me)) return;
+        Settings.Secure.putString(cr, key, cur == null || cur.isEmpty() ? me : cur + ":" + me);
     }
 
     // ---------------------------------------------------------------- apps
