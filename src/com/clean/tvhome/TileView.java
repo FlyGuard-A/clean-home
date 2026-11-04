@@ -30,7 +30,7 @@ final class TileView extends FrameLayout {
 
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(16 * dp);
-        bg.setColor(0x40FFFFFF);
+        bg.setColor(0xFF1C1C21);
         setBackground(bg);
         setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         setClipToOutline(true);

@@ -122,7 +122,7 @@ final class Scores {
         Calendar cal = Calendar.getInstance();
         SimpleDateFormat ymd = new SimpleDateFormat("yyyyMMdd", Locale.US);
         String today = ymd.format(cal.getTime());
-        cal.add(Calendar.DAY_OF_YEAR, 2);
+        cal.add(Calendar.DAY_OF_YEAR, 5);
         String range = today + "-" + ymd.format(cal.getTime());
         long now = System.currentTimeMillis();
 
@@ -135,8 +135,8 @@ final class Scores {
                     Game g = parse(events.getJSONObject(i), l[0], false);
                     if (g == null) continue;
                     boolean keep = "in".equals(g.state)
-                            || ("pre".equals(g.state) && g.time - now < 48 * 3600_000L)
-                            || ("post".equals(g.state) && now - g.time < 8 * 3600_000L);
+                            || ("pre".equals(g.state) && g.time - now < 5 * 24 * 3600_000L)
+                            || ("post".equals(g.state) && now - g.time < 12 * 3600_000L);
                     if (keep) out.add(g);
                 }
             } catch (Exception skipLeague) {
@@ -277,7 +277,7 @@ final class Scores {
         if (games == null) {
             list.addView(text("Scores unavailable right now", 13, "sans-serif", 0xB3FFFFFF));
         } else if (games.isEmpty()) {
-            list.addView(text("No matches in the next 2 days", 13, "sans-serif", 0xB3FFFFFF));
+            list.addView(text("No matches in the next 5 days", 13, "sans-serif", 0xB3FFFFFF));
         } else {
             for (Game g : games) list.addView(row(g), new LinearLayout.LayoutParams(-1, px(34)));
         }

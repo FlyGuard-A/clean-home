@@ -75,39 +75,139 @@ final class IconLoader {
     private Bitmap render(AppEntry e) {
         try {
             Drawable icon = icon(e);
+            boolean adaptive = Build.VERSION.SDK_INT >= 26 && icon instanceof AdaptiveIconDrawable;
+            Bitmap sq = square(icon, adaptive);
+            Rect box = opaqueBounds(sq);
             Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(out);
-
-            if (Build.VERSION.SDK_INT >= 26 && icon instanceof AdaptiveIconDrawable) {
-                AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
-                if (a.getBackground() != null) {
-                    a.getBackground().setBounds(0, (h - w) / 2, w, (h + w) / 2);
-                    a.getBackground().draw(c);
-                }
-                if (a.getForeground() != null) {
-                    int s = (int) (h * 0.62f * 108 / 72); // the 72dp safe zone fills 62% of the tile height
-                    a.getForeground().setBounds((w - s) / 2, (h - s) / 2, (w + s) / 2, (h + s) / 2);
-                    a.getForeground().draw(c);
-                }
+            if (box == null) {
+                c.drawColor(DARK);
                 return out;
             }
-
-            int size = 256;
-            Bitmap ib = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-            icon.setBounds(0, 0, size, size);
-            icon.draw(new Canvas(ib));
-
-            int edge = edgeColor(ib);
-            boolean fullBleed = Color.alpha(edge) > 200;
-            c.drawColor(fullBleed ? (edge | 0xFF000000) : glass(dominant(ib)));
-            int s = (int) (h * (fullBleed ? 0.84f : 0.6f));
+            Bitmap logo = Bitmap.createBitmap(sq, box.left, box.top, box.width(), box.height());
             Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
-            c.drawBitmap(ib, null, new Rect((w - s) / 2, (h - s) / 2, (w + s) / 2, (h + s) / 2), p);
-            ib.recycle();
+
+            if (adaptive || fullBleed(logo)) {
+                // The icon has its own background: extend that background to fill the tile,
+                // by stretching the icon's outermost pixels outward, so there is no seam.
+                logo = solidEdges(logo);
+                int lw = logo.getWidth(), lh = logo.getHeight();
+                c.drawColor(logo.getPixel(0, lh / 2) | 0xFF000000);
+                float scale = adaptive ? 1.2f : 1f; // adaptive layers have spare margin around the logo
+                int dh = (int) (h * scale), dw = dh * lw / lh;
+                if (dw <= w) {
+                    int l = (w - dw) / 2, t = (h - dh) / 2;
+                    c.drawBitmap(logo, null, new Rect(l, t, l + dw, t + dh), p);
+                    c.drawBitmap(logo, new Rect(0, 0, 1, lh), new Rect(0, t, l + 1, t + dh), p);
+                    c.drawBitmap(logo, new Rect(lw - 1, 0, lw, lh), new Rect(l + dw - 1, t, w, t + dh), p);
+                } else {
+                    dw = w;
+                    dh = w * lh / lw;
+                    int t = (h - dh) / 2;
+                    c.drawBitmap(logo, null, new Rect(0, t, w, t + dh), p);
+                    c.drawBitmap(logo, new Rect(0, 0, lw, 1), new Rect(0, 0, w, t + 1), p);
+                    c.drawBitmap(logo, new Rect(0, lh - 1, lw, lh), new Rect(0, t + dh - 1, w, h), p);
+                }
+            } else {
+                // A bare logo with no background of its own: put it on a plain dark tile.
+                c.drawColor(DARK);
+                float fit = Math.min(h * 0.6f / logo.getHeight(), w * 0.7f / logo.getWidth());
+                int dw = (int) (logo.getWidth() * fit), dh = (int) (logo.getHeight() * fit);
+                c.drawBitmap(logo, null, new Rect((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2), p);
+            }
             return out;
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    private static final int DARK = 0xFF1C1C21;
+    private static final int SIZE = 256;
+
+    /** The icon drawn square; adaptive icons are drawn unmasked (background + foreground layers). */
+    private static Bitmap square(Drawable icon, boolean adaptive) {
+        Bitmap b = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        if (adaptive) {
+            AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
+            Drawable[] layers = {a.getBackground(), a.getForeground()};
+            for (Drawable d : layers) {
+                if (d == null) continue;
+                d.setBounds(0, 0, SIZE, SIZE);
+                d.draw(c);
+            }
+        } else {
+            icon.setBounds(0, 0, SIZE, SIZE);
+            icon.draw(c);
+        }
+        return b;
+    }
+
+    /** Bounds of the visible pixels, which trims any transparent padding the app added. */
+    private static Rect opaqueBounds(Bitmap b) {
+        int n = b.getWidth();
+        int[] px = new int[n * n];
+        b.getPixels(px, 0, n, 0, 0, n, n);
+        int l = n, t = n, r = -1, bo = -1;
+        for (int y = 0; y < n; y++) {
+            for (int x = 0; x < n; x++) {
+                if ((px[y * n + x] >>> 24) > 24) {
+                    if (x < l) l = x;
+                    if (x > r) r = x;
+                    if (y < t) t = y;
+                    if (y > bo) bo = y;
+                }
+            }
+        }
+        return r < 0 ? null : new Rect(l, t, r + 1, bo + 1);
+    }
+
+    /** True when the icon is a filled shape (square, rounded square, circle-free), not a bare logo. */
+    private static boolean fullBleed(Bitmap b) {
+        int bw = b.getWidth(), bh = b.getHeight(), ix = Math.max(2, bw / 40), iy = Math.max(2, bh / 40);
+        int[][] pts = {
+                {bw / 2, iy}, {bw / 2, bh - 1 - iy}, {ix, bh / 2}, {bw - 1 - ix, bh / 2},
+                {bw / 3, iy}, {2 * bw / 3, iy}, {bw / 3, bh - 1 - iy}, {2 * bw / 3, bh - 1 - iy},
+                {ix, bh / 3}, {ix, 2 * bh / 3}, {bw - 1 - ix, bh / 3}, {bw - 1 - ix, 2 * bh / 3}};
+        for (int[] q : pts) {
+            if (Color.alpha(b.getPixel(q[0], q[1])) < 230) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Fills rounded corners and anti-aliased edges with the nearest solid pixel in the
+     * same row, so stretching the outer columns gives a clean continuation.
+     */
+    private static Bitmap solidEdges(Bitmap src) {
+        int bw = src.getWidth(), bh = src.getHeight();
+        int[] px = new int[bw * bh];
+        src.getPixels(px, 0, bw, 0, 0, bw, bh);
+        int lastGood = -1;
+        for (int y = 0; y < bh; y++) {
+            int o = y * bw, first = -1, last = -1;
+            for (int x = 0; x < bw; x++) if ((px[o + x] >>> 24) > 230) { first = x; break; }
+            for (int x = bw - 1; x >= 0; x--) if ((px[o + x] >>> 24) > 230) { last = x; break; }
+            if (first < 0) continue;
+            for (int x = 0; x < first; x++) px[o + x] = px[o + first];
+            for (int x = last + 1; x < bw; x++) px[o + x] = px[o + last];
+            if (lastGood < 0) {
+                for (int yy = 0; yy < y; yy++) System.arraycopy(px, o, px, yy * bw, bw);
+            }
+            lastGood = y;
+        }
+        if (lastGood < 0) return src;
+        for (int y = lastGood + 1; y < bh; y++) System.arraycopy(px, lastGood * bw, px, y * bw, bw);
+        for (int y = 0; y < bh; y++) {
+            int o = y * bw;
+            boolean empty = true;
+            for (int x = 0; x < bw && empty; x++) if ((px[o + x] >>> 24) > 230) empty = false;
+            if (empty && y > 0) System.arraycopy(px, o - bw, px, o, bw);
+        }
+        for (int i = 0; i < px.length; i++) px[i] |= 0xFF000000;
+        Bitmap out = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        out.setPixels(px, 0, bw, 0, 0, bw, bh);
+        return out;
     }
 
     /** The sharpest version of the icon the app ships. */
@@ -126,46 +226,5 @@ final class IconLoader {
         } catch (Exception ignored) {
         }
         return pm.getActivityIcon(cn);
-    }
-
-    /** Average of the middle of each edge (skipping rounded corners). */
-    private static int edgeColor(Bitmap b) {
-        int n = b.getWidth(), in = n / 16, m = n / 2;
-        int[] pts = {b.getPixel(m, in), b.getPixel(m, n - 1 - in), b.getPixel(in, m), b.getPixel(n - 1 - in, m),
-                b.getPixel(n / 3, in), b.getPixel(2 * n / 3, n - 1 - in)};
-        long r = 0, g = 0, bl = 0, a = 0;
-        for (int p : pts) {
-            r += Color.red(p);
-            g += Color.green(p);
-            bl += Color.blue(p);
-            a += Color.alpha(p);
-        }
-        int k = pts.length;
-        return Color.argb((int) (a / k), (int) (r / k), (int) (g / k), (int) (bl / k));
-    }
-
-    private static int dominant(Bitmap src) {
-        Bitmap s = Bitmap.createScaledBitmap(src, 12, 12, true);
-        long r = 0, g = 0, b = 0, n = 0;
-        for (int y = 0; y < 12; y++) {
-            for (int x = 0; x < 12; x++) {
-                int p = s.getPixel(x, y);
-                if (Color.alpha(p) < 128) continue;
-                r += Color.red(p);
-                g += Color.green(p);
-                b += Color.blue(p);
-                n++;
-            }
-        }
-        return n == 0 ? 0xFF3A3A44 : Color.rgb((int) (r / n), (int) (g / n), (int) (b / n));
-    }
-
-    /** A dark tile tinted toward the logo's color, for logos without their own background. */
-    private static int glass(int c) {
-        float[] hsv = new float[3];
-        Color.colorToHSV(c, hsv);
-        hsv[1] = Math.min(hsv[1], 0.35f);
-        hsv[2] = 0.16f;
-        return Color.HSVToColor(hsv);
     }
 }
